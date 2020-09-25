@@ -2,7 +2,10 @@ package spotify
 
 import (
 	"errors"
+	"fmt"
+	"net/url"
 	"reflect"
+	"sync"
 )
 
 // ErrNoMorePages is the error returned when you attempt to get the next
@@ -117,6 +120,56 @@ func (c *Client) NextPage(p pageable) error {
 	val.Set(zero)
 
 	return c.get(nextURL, p)
+}
+
+type PageResult struct {
+	Response interface{}
+	Error    error
+}
+
+func (c *Client) GetAllPages(p pageable) <-chan PageResult {
+	wg := sync.WaitGroup{}
+	ch := make(chan PageResult)
+
+	val := reflect.ValueOf(p).Elem()
+	total := val.FieldByName("Total").Interface().(int)
+	limit := val.FieldByName("Limit").Interface().(int)
+	endpoint := val.FieldByName("Endpoint").Interface().(string)
+
+	parse, err := url.Parse(endpoint)
+	if err != nil {
+		panic(err)
+	}
+
+	requestPage := func(site int) {
+		defer wg.Done()
+
+		dst := reflect.New(val.Type()).Interface()
+
+		values, _ := url.ParseQuery(parse.RawQuery)
+		values.Set("offset", fmt.Sprintf("%d", limit*(site+1)))
+		s := parse.Scheme + "://" + parse.Host + parse.Path + "?" + values.Encode()
+
+		err := c.get(s, dst)
+
+		ch <- PageResult{
+			Response: dst,
+			Error:    err,
+		}
+	}
+
+	amount := total / limit
+	for i := 0; i < amount+1; i++ {
+		wg.Add(1)
+		go requestPage(i)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	return ch
 }
 
 // PreviousPage fetches the previous page of items and writes them into p.

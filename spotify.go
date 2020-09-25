@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/valyala/fastjson"
 )
 
 // Version is the version of this library.
@@ -222,11 +224,11 @@ func retryDuration(resp *http.Response) time.Duration {
 func (c *Client) get(url string, result interface{}) error {
 	for {
 		req, err := http.NewRequest("GET", url, nil)
-		if c.AcceptLanguage != "" {
-			req.Header.Set("Accept-Language", c.AcceptLanguage)
-		}
 		if err != nil {
 			return err
+		}
+		if c.AcceptLanguage != "" {
+			req.Header.Set("Accept-Language", c.AcceptLanguage)
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -246,8 +248,31 @@ func (c *Client) get(url string, result interface{}) error {
 			return c.decodeError(resp)
 		}
 
-		err = json.NewDecoder(resp.Body).Decode(result)
+
+		all, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
+			return err
+		}
+
+		v, err := fastjson.ParseBytes(all)
+		if err != nil {
+			return err
+		}
+
+		if o, err := v.Object(); err == nil {
+			if o.Len() == 1 {
+				var keys []string
+				o.Visit(func(key []byte, v *fastjson.Value) {
+					keys = append(keys, string(key))
+				})
+
+				if err := json.Unmarshal([]byte(o.Get(keys[0]).String()), result); err != nil {
+					return err
+				}
+			}
+		}
+
+		if err := json.Unmarshal(all, result); err != nil {
 			return err
 		}
 
