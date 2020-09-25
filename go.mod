@@ -1,6 +1,6 @@
-module github.com/zmb3/spotify
+module github.com/fionera/spotify
 
-go 1.14
+go 1.15
 
 require (
 	github.com/valyala/fastjson v1.6.1
